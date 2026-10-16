@@ -1,0 +1,99 @@
+/* ============================================================
+   TADOBA SENTINEL — Design Tokens
+   ============================================================ */
+
+:root {
+  /* --- Brand Greens (extracted from reference screenshots) --- */
+  --color-brand-900: #0d2818;   /* darkest sidebar bg */
+  --color-brand-800: #143520;   /* sidebar hover/active bg */
+  --color-brand-700: #1a4329;   /* sidebar item hover */
+  --color-brand-600: #1f5233;   /* active nav accent */
+  --color-brand-500: #2d6a4f;   /* primary action bg */
+  --color-brand-400: #3a8a5f;   /* lighter brand */
+  --color-brand-300: #52b788;   /* accent highlight */
+  --color-brand-200: #95d5b2;   /* light success */
+  --color-brand-100: #d8f3dc;   /* lightest tint */
+
+  /* --- Accent / Active Indicator --- */
+  --color-accent: #4ade80;      /* bright-green left bar on active nav */
+
+  /* --- Workspace / Content Area --- */
+  --color-workspace-bg: #f8f9f7;  /* off-white main bg */
+  --color-card-bg: #ffffff;
+  --color-card-border: #e8ede9;
+  --color-card-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 1px rgba(0,0,0,0.04);
+
+  /* --- Text --- */
+  --color-text-primary: #111b13;
+  --color-text-secondary: #4a5c4d;
+  --color-text-muted: #7a9080;
+  --color-text-on-dark: #ffffff;
+  --color-text-on-dark-muted: rgba(255,255,255,0.65);
+
+  /* --- Status Colors --- */
+  --color-success: #22863a;
+  --color-success-bg: #e6f4ea;
+  --color-success-border: #a8d5b5;
+
+  --color-warning: #b45309;
+  --color-warning-bg: #fef3c7;
+  --color-warning-border: #fcd34d;
+
+  --color-critical: #dc2626;
+  --color-critical-bg: #fef2f2;
+  --color-critical-border: #fca5a5;
+
+  --color-info: #1d4ed8;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #93c5fd;
+
+  --color-neutral: #6b7280;
+  --color-neutral-bg: #f3f4f6;
+  --color-neutral-border: #d1d5db;
+
+  /* --- Priority Colors --- */
+  --color-priority-high: #dc2626;
+  --color-priority-medium: #d97706;
+  --color-priority-low: #16a34a;
+
+  /* --- Sidebar Dimensions --- */
+  --sidebar-width: 228px;
+  --sidebar-collapsed-width: 64px;
+
+  /* --- Layout --- */
+  --header-height: 60px;
+  --content-padding: 24px;
+  --border-radius-sm: 6px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+
+  /* --- Typography --- */
+  --font-sans: 'Inter', 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-3xl: 28px;
+  --font-size-4xl: 36px;
+
+  /* --- Transitions --- */
+  --transition-fast: 0.12s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.35s ease;
+
+  /* --- Z-indices --- */
+  --z-sidebar: 100;
+  --z-header: 90;
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-tooltip: 250;
+
+  /* --- Demo Mode banner --- */
+  --color-demo-bg: #fff7ed;
+  --color-demo-border: #f97316;
+  --color-demo-text: #9a3412;
+}

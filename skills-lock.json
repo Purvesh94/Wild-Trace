@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "cancel-ralph": {
+      "source": "burakkaygusuz/ralph-wiggum",
+      "sourceType": "github",
+      "skillPath": "skills/cancel-ralph/SKILL.md",
+      "computedHash": "46d5cf5555211a1944160fcac1a534f727aaf80d7255e25f16d89ce017ca1d24"
+    },
+    "ralph-loop": {
+      "source": "burakkaygusuz/ralph-wiggum",
+      "sourceType": "github",
+      "skillPath": "skills/ralph-loop/SKILL.md",
+      "computedHash": "69fc21d4792609691c393bbd00c28c08372b47ad3b53215b534cb101b7793f64"
+    },
+    "ralph-loop-help": {
+      "source": "burakkaygusuz/ralph-wiggum",
+      "sourceType": "github",
+      "skillPath": "skills/ralph-loop-help/SKILL.md",
+      "computedHash": "27d61014cb22e1f1336a983c977aa20277c457088feda929dd230ab29fcce1ea"
+    }
+  }
+}
