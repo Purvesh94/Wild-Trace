@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
-    "seed": "node src/seed.js"
+    "dev": "node --env-file-if-exists=.env.local --watch src/server.js",
+    "discovery": "node --env-file-if-exists=.env.local src/discovery.js",
+    "start": "node --env-file-if-exists=.env.local src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import AppShell from '../components/AppShell';
 import MapPanel from '../components/MapPanel';
+import DroneControlPanel from '../components/DroneControlPanel';
+import ManualMissionRegistry from '../components/ManualMissionRegistry';
 import {
-  Navigation, Play, Pause, RotateCcw, Camera as CameraIcon,
-  CheckCircle, Clock, AlertTriangle, ChevronRight, Image
+  CheckCircle, Clock, AlertTriangle, Image
 } from 'lucide-react';
 import { MOCK_MISSIONS } from '../data/mockData';
 
@@ -22,6 +23,8 @@ export default function MissionsPage() {
 
   return (
     <AppShell pageTitle="Missions" pageSubtitle="Drone missions and task management">
+      <DroneControlPanel />
+      <ManualMissionRegistry />
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, height: 'calc(100vh - 160px)', minHeight: 400 }}>
         {/* Mission list */}
         <div className="card" style={{ overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -120,22 +123,9 @@ export default function MissionsPage() {
                   ))}
                 </div>
 
-                {/* Drone controls (simulated) */}
-                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                  <button className="btn btn-primary btn-sm" disabled={selected.status === 'completed'}>
-                    <Play size={13} /> Start
-                  </button>
-                  <button className="btn btn-secondary btn-sm" disabled={selected.status === 'completed'}>
-                    <Pause size={13} /> Hold
-                  </button>
-                  <button className="btn btn-danger btn-sm" disabled={selected.status === 'completed'}>
-                    <RotateCcw size={13} /> RTL
-                  </button>
-                </div>
-
                 <div className="demo-alert-banner" style={{ marginTop: 12, marginBottom: 0 }}>
                   <AlertTriangle size={16} />
-                  Drone controls operate in simulation mode. No physical drone is connected.
+                  This archived mission card contains demo telemetry. Use ESP32 manual control above for connected hardware. Hold and RTL are unsupported by the E88 remote bridge.
                 </div>
               </div>
 

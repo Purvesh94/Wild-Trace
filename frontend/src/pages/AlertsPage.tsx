@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import AppShell from '../components/AppShell';
 import {
   Search, Filter, ChevronDown, ChevronRight, Camera,
   CheckCircle, AlertTriangle, Clock, Eye, X
 } from 'lucide-react';
-import { MOCK_ALERTS } from '../data/mockData';
+import { getAlerts, subscribeEvents } from '../media/stores';
 
 type AlertStatus = 'all' | 'needs_verification' | 'in_review' | 'assigned' | 'new' | 'resolved';
 
@@ -23,11 +23,12 @@ const PRIORITY_LABELS: Record<string, { label: string; cls: string }> = {
 };
 
 export default function AlertsPage() {
+  const alerts = useSyncExternalStore(subscribeEvents, getAlerts);
   const [statusFilter, setStatusFilter] = useState<AlertStatus>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(MOCK_ALERTS[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(alerts[0]?.id ?? null);
 
-  const filtered = MOCK_ALERTS.filter(a => {
+  const filtered = alerts.filter(a => {
     if (statusFilter !== 'all' && a.status !== statusFilter) return false;
     if (searchTerm && !a.id.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !(a.species ?? '').toLowerCase().includes(searchTerm.toLowerCase()) &&
@@ -35,15 +36,15 @@ export default function AlertsPage() {
     return true;
   });
 
-  const selected = MOCK_ALERTS.find(a => a.id === selectedId) ?? null;
+  const selected = filtered.find(a => a.id === selectedId) ?? filtered[0] ?? null;
 
   const statusTabs: { key: AlertStatus; label: string; count: number }[] = [
-    { key: 'all', label: 'All', count: MOCK_ALERTS.length },
-    { key: 'needs_verification', label: 'Needs Verification', count: MOCK_ALERTS.filter(a => a.status === 'needs_verification').length },
-    { key: 'in_review', label: 'In Review', count: MOCK_ALERTS.filter(a => a.status === 'in_review').length },
-    { key: 'assigned', label: 'Assigned', count: MOCK_ALERTS.filter(a => a.status === 'assigned').length },
-    { key: 'new', label: 'New', count: MOCK_ALERTS.filter(a => a.status === 'new').length },
-    { key: 'resolved', label: 'Resolved', count: MOCK_ALERTS.filter(a => a.status === 'resolved').length },
+    { key: 'all', label: 'All', count: alerts.length },
+    { key: 'needs_verification', label: 'Needs Verification', count: alerts.filter(a => a.status === 'needs_verification').length },
+    { key: 'in_review', label: 'In Review', count: alerts.filter(a => a.status === 'in_review').length },
+    { key: 'assigned', label: 'Assigned', count: alerts.filter(a => a.status === 'assigned').length },
+    { key: 'new', label: 'New', count: alerts.filter(a => a.status === 'new').length },
+    { key: 'resolved', label: 'Resolved', count: alerts.filter(a => a.status === 'resolved').length },
   ];
 
   return (
@@ -95,13 +96,13 @@ export default function AlertsPage() {
                 {filtered.map(alert => (
                   <tr
                     key={alert.id}
-                    className={selectedId === alert.id ? 'selected' : ''}
+                    className={selected?.id === alert.id ? 'selected' : ''}
                     onClick={() => setSelectedId(alert.id)}
                   >
                     <td style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{alert.id}</td>
                     <td>
                       <span className={`badge ${alert.type === 'wildlife' ? 'warning' : 'neutral'}`} style={{ fontSize: 10 }}>
-                        {alert.type === 'wildlife' ? `🐾 ${alert.species}` : '📡 Device'}
+                        {alert.type === 'device' ? '📡 Device' : `${alert.testSource ? 'WEBCAM TEST · ' : ''}${alert.species}`}
                       </span>
                     </td>
                     <td>{alert.source}</td>
@@ -173,7 +174,8 @@ export default function AlertsPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: 2 }}>LOCATION</div>
-                    <div>{selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}</div>
+                    <div>{selected.lat !== null && selected.lng !== null ? `${selected.lat.toFixed(4)}, ${selected.lng.toFixed(4)}` : 'Object location unknown'}</div>
+                    {selected.platformPosition && <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Source device GPS: {selected.platformPosition.lat.toFixed(4)}, {selected.platformPosition.lng.toFixed(4)} (not object location)</div>}
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: 2 }}>IDENTITY</div>

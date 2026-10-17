@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import AppShell from '../components/AppShell';
 import {
-  Search, Eye, ChevronRight, MapPin, Camera,
+  Search, Eye, ChevronRight, Camera,
   Clock, CheckCircle, AlertTriangle, History
 } from 'lucide-react';
 import { MOCK_ANIMALS } from '../data/mockData';

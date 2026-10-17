@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AppShell from '../components/AppShell';
+import Esp32ConnectionPanel from '../components/Esp32ConnectionPanel';
+import DeviceConnectionPanel from '../components/DeviceConnectionPanel';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-  User, Shield, Wifi, Bell, Database, Monitor,
+  User, Shield, Bell, Database,
   AlertTriangle, Save, QrCode, RefreshCw, Trash2,
-  Copy
+  Copy, PlugZap, Clock,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
 
@@ -23,13 +26,15 @@ const MOCK_DEVICES: DeviceEntry[] = [
   { id: 'DEV-004', name: 'Field Tablet', type: 'mobile', status: 'disconnected', lastSeen: '1 hour ago' },
 ];
 
-type SettingsTab = 'profile' | 'notifications' | 'devices' | 'connection' | 'security' | 'system';
+type SettingsTab = 'profile' | 'notifications' | 'devices' | 'device_connect' | 'security' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [devices, setDevices] = useState(MOCK_DEVICES);
   const [showQR, setShowQR] = useState(false);
   const [pairingToken, setPairingToken] = useState('');
+  const [tokenExpiry, setTokenExpiry] = useState<Date | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
   const [saved, setSaved] = useState(false);
 
   // Profile state
@@ -43,16 +48,14 @@ export default function SettingsPage() {
   const [notifDevices, setNotifDevices] = useState(false);
   const [notifReports, setNotifReports] = useState(false);
 
-  // Connection state
-  const [backendUrl, setBackendUrl] = useState('http://localhost:3001');
-  const [wsUrl, setWsUrl] = useState('ws://localhost:3001/ws');
-  const [droneMode, setDroneMode] = useState('simulated');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for system tab
+  const [_droneMode] = useState('simulated');
 
   const tabs: { key: SettingsTab; label: string; icon: typeof User }[] = [
     { key: 'profile', label: 'Profile', icon: User },
     { key: 'notifications', label: 'Notifications', icon: Bell },
     { key: 'devices', label: 'Devices & QR', icon: QrCode },
-    { key: 'connection', label: 'Connection', icon: Wifi },
+    { key: 'device_connect', label: 'Device Connection', icon: PlugZap },
     { key: 'security', label: 'Security', icon: Shield },
     { key: 'system', label: 'System', icon: Database },
   ];
@@ -62,10 +65,41 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  // Token expiry countdown
+  useEffect(() => {
+    if (!tokenExpiry) return;
+    const tick = setInterval(() => {
+      const left = Math.max(0, Math.round((tokenExpiry.getTime() - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) {
+        setShowQR(false);
+        setPairingToken('');
+        setTokenExpiry(null);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [tokenExpiry]);
+
   function generatePairingToken() {
     const token = `TSP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     setPairingToken(token);
+    setTokenExpiry(expiry);
+    setSecondsLeft(600);
     setShowQR(true);
+  }
+
+  function expireToken() {
+    setShowQR(false);
+    setPairingToken('');
+    setTokenExpiry(null);
+    setSecondsLeft(0);
+  }
+
+  function fmtCountdown(s: number) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
   }
 
   function revokeDevice(id: string) {
@@ -205,77 +239,78 @@ export default function SettingsPage() {
               {/* QR Generation */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
                 <button className="btn btn-primary btn-sm" onClick={generatePairingToken}>
-                  <QrCode size={14} /> Generate Pairing QR
+                  <QrCode size={14} /> {showQR ? 'Regenerate QR' : 'Generate Pairing QR'}
                 </button>
                 {showQR && (
-                  <button className="btn btn-secondary btn-sm" onClick={() => { setShowQR(false); setPairingToken(''); }}>
+                  <button className="btn btn-danger btn-sm" onClick={expireToken}>
                     <RefreshCw size={12} /> Expire Token
                   </button>
                 )}
               </div>
 
               {showQR && pairingToken && (
-                <div className="card" style={{ padding: 20, maxWidth: 360, textAlign: 'center' }}>
-                  {/* Simulated QR code display */}
+                <div className="card" style={{ padding: 24, maxWidth: 340, textAlign: 'center' }}>
+                  {/* Real QR code — encodes the pairing token as a URL */}
                   <div style={{
-                    width: 180, height: 180, margin: '0 auto 12px', borderRadius: 8,
-                    background: 'white', border: '2px solid var(--color-card-border)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexDirection: 'column', gap: 8,
+                    display: 'inline-block', padding: 12,
+                    background: 'white', borderRadius: 10,
+                    border: '2px solid var(--color-card-border)',
+                    boxShadow: 'var(--color-card-shadow)',
+                    marginBottom: 14,
                   }}>
-                    <QrCode size={80} color="var(--color-brand-900)" />
-                    <div style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Scan with device</div>
+                    <QRCodeSVG
+                      value={`tadoba-sentinel://pair?token=${pairingToken}&host=${window.location.hostname}&port=${window.location.port || '80'}&t=${Date.now()}`}
+                      size={180}
+                      bgColor="#ffffff"
+                      fgColor="#0d2818"
+                      level="M"
+                      includeMargin={false}
+                    />
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Pairing Token</div>
+
+                  {/* Countdown */}
                   <div style={{
-                    fontSize: 13, fontFamily: 'monospace', background: 'var(--color-workspace-bg)',
-                    padding: '6px 12px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 8,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '4px 12px', borderRadius: 20, marginBottom: 14,
+                    background: secondsLeft < 60 ? 'var(--color-critical-bg)' : 'var(--color-success-bg)',
+                    color: secondsLeft < 60 ? 'var(--color-critical)' : 'var(--color-success)',
+                    fontSize: 12, fontWeight: 700,
+                  }}>
+                    <Clock size={12} />
+                    Expires in {fmtCountdown(secondsLeft)}
+                  </div>
+
+                  {/* Token text + copy */}
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 6 }}>PAIRING TOKEN</div>
+                  <div style={{
+                    fontSize: 12, fontFamily: 'ui-monospace, Consolas, monospace',
+                    background: 'var(--color-workspace-bg)', border: '1px solid var(--color-card-border)',
+                    padding: '7px 12px', borderRadius: 6,
+                    display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                    letterSpacing: '0.04em',
                   }}>
                     {pairingToken}
-                    <Copy size={12} style={{ cursor: 'pointer', color: 'var(--color-text-muted)' }} onClick={() => navigator.clipboard.writeText(pairingToken)} />
+                    <Copy
+                      size={13}
+                      aria-label="Copy token"
+                      style={{ cursor: 'pointer', color: 'var(--color-text-muted)', flexShrink: 0 }}
+                      onClick={() => navigator.clipboard.writeText(pairingToken)}
+                    />
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 8 }}>
-                    Token expires in 10 minutes. Scan the QR code from a compatible device to begin pairing.
-                  </div>
-                  <div className="demo-alert-banner" style={{ marginTop: 12, marginBottom: 0 }}>
-                    <AlertTriangle size={14} />
-                    <span style={{ fontSize: 11 }}>SIMULATED — No real QR image generated. In production, use a library like <code style={{ fontSize: 10 }}>qrcode.react</code> to encode the enrollment URL.</span>
+
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                    Scan with a compatible device on the same network.
+                    The QR encodes a pairing URL including this token.
+                    Token auto-expires when the countdown reaches zero.
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* CONNECTION */}
-          {activeTab === 'connection' && (
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Connection Settings</h2>
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 20 }}>Backend server and drone connectivity configuration.</p>
-              <div className="form-group">
-                <label className="form-label">Backend API URL</label>
-                <input className="form-input" value={backendUrl} onChange={e => setBackendUrl(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">WebSocket URL</label>
-                <input className="form-input" value={wsUrl} onChange={e => setWsUrl(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Drone Connection Mode</label>
-                <select className="form-input" value={droneMode} onChange={e => setDroneMode(e.target.value)}>
-                  <option value="simulated">Simulated (Mock)</option>
-                  <option value="sitl">ArduPilot SITL</option>
-                  <option value="mavlink">MAVLink (Hardware)</option>
-                </select>
-              </div>
-              <div className="demo-alert-banner">
-                <AlertTriangle size={16} />
-                <span style={{ fontSize: 12 }}>
-                  No backend server is currently running. Start the backend to enable API and WebSocket connectivity.
-                </span>
-              </div>
-              <button className="btn btn-primary" onClick={handleSave}><Save size={14} /> Save</button>
-              {saved && <span style={{ marginLeft: 12, color: 'var(--color-success)', fontSize: 13, fontWeight: 600 }}>✓ Saved</span>}
-            </div>
+          {/* DEVICE CONNECTION */}
+          {activeTab === 'device_connect' && (
+            <><Esp32ConnectionPanel /><details style={{ marginTop: 20 }}><summary style={{ cursor: 'pointer', fontSize: 12 }}>Legacy WebSocket device connection</summary><DeviceConnectionPanel /></details></>
           )}
 
           {/* SECURITY */}

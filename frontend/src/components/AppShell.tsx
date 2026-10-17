@@ -67,8 +67,8 @@ export default function AppShell({
           <div className="sidebar-cc-status">
             <div className="sidebar-cc-dot" />
             <div>
-              <div className="sidebar-cc-name">Connected</div>
-              <div className="sidebar-cc-location">Tadoba – Andhari Tiger Reserve</div>
+              <div className="sidebar-cc-name">Demo dashboard</div>
+              <div className="sidebar-cc-location">Drone connection: see Settings</div>
             </div>
           </div>
         </div>

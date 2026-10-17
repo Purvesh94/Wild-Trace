@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import AppShell from '../components/AppShell';
 import MapPanel from '../components/MapPanel';
 import {
   Bell, Navigation, PawPrint, BarChart2,
-  ArrowRight, AlertTriangle, CheckCircle, Clock,
+  ArrowRight, AlertTriangle, CheckCircle,
   ChevronRight, Camera, Wifi
 } from 'lucide-react';
 import { MOCK_OVERVIEW_STATS, MOCK_ALERTS, MOCK_MISSIONS } from '../data/mockData';
@@ -38,7 +38,6 @@ export default function OverviewPage() {
   const navigate = useNavigate();
   const s = MOCK_OVERVIEW_STATS;
   const recentAlerts = MOCK_ALERTS.filter(a => a.type === 'wildlife').slice(0, 3);
-  const activeMissions = MOCK_MISSIONS.filter(m => m.status === 'in_progress' || m.status === 'awaiting_readiness');
 
   return (
     <AppShell
