@@ -19,12 +19,23 @@ const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
   draft: { cls: 'badge warning', label: 'Draft' },
 };
 
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map(row => row.map(value => {
+    const safe = /^[=+@-]/.test(value) ? `'${value}` : value;
+    return `"${safe.replaceAll('"', '""')}"`;
+  }).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url; link.download = filename; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function ReportsPage() {
   const [dateRange, setDateRange] = useState('7d');
   const s = MOCK_REPORT_SUMMARY;
 
   return (
-    <AppShell pageTitle="Reports" pageSubtitle="Operational analytics and report generation">
+    <AppShell pageTitle="Reports" pageSubtitle="Operational analytics and sample report data">
       {/* Date filter */}
       <div className="filter-bar">
         <div style={{ display: 'flex', gap: 6 }}>
@@ -44,14 +55,17 @@ export default function ReportsPage() {
           ))}
         </div>
         <div style={{ marginLeft: 'auto' }}>
-          <button className="btn btn-secondary btn-sm">
-            <Download size={13} /> Export PDF
+          <button className="btn btn-secondary btn-sm" onClick={() => downloadCsv('tadoba-sample-reports.csv', [
+            ['ID', 'Report Name', 'Type', 'Period', 'Author', 'Status'],
+            ...MOCK_REPORTS_ARCHIVE.map(report => [report.id, report.name, report.type, report.period, report.author, report.status]),
+          ])}>
+            <Download size={13} /> Export CSV
           </button>
         </div>
       </div>
 
       {/* Summary stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="responsive-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
           { label: 'Alerts Received', value: s.alertsReceived, icon: BarChart2, iconCls: 'red' },
           { label: 'Missions Completed', value: s.missionsCompleted, icon: TrendingUp, iconCls: 'blue' },
@@ -71,7 +85,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+      <div className="responsive-two-column responsive-charts" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16, marginBottom: 20 }}>
         {/* Bar chart */}
         <div className="card">
           <div className="card-header">
@@ -170,7 +184,10 @@ export default function ReportsPage() {
                   )}
                 </td>
                 <td>
-                  <button className="btn btn-secondary btn-sm">
+                  <button className="btn btn-secondary btn-sm" aria-label={`Download ${report.name} sample data`} title="Download this sample report row as CSV" onClick={() => downloadCsv(`${report.id.toLowerCase()}-sample.csv`, [
+                    ['ID', 'Report Name', 'Type', 'Period', 'Author', 'Status'],
+                    [report.id, report.name, report.type, report.period, report.author, report.status],
+                  ])}>
                     <Download size={12} />
                   </button>
                 </td>

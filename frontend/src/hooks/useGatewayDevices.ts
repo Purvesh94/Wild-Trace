@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { deviceApi } from '../services/deviceApi';
 import type { GatewayDevice, GatewayEvent } from '../services/deviceApi';
 
@@ -7,7 +7,10 @@ export function useGatewayDevices() {
   const [events, setEvents] = useState<GatewayEvent[]>([]);
   const [error, setError] = useState('');
   const [checkedAt, setCheckedAt] = useState(0);
+  const inFlight = useRef(false);
   const refresh = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       const listing = await deviceApi.list();
       const updated = await Promise.all(listing.devices.map(async d => {
@@ -18,8 +21,15 @@ export function useGatewayDevices() {
       setEvents((await deviceApi.events()).events);
       setCheckedAt(Date.now());
       setError('');
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) {
+      setDevices(previous => previous.map(d => d.manualDisconnected ? d : { ...d, connected: false }));
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { inFlight.current = false; }
   }, []);
-  useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 3000); return () => clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    const initial = setTimeout(() => void refresh(), 0);
+    const timer = setInterval(() => void refresh(), 3000);
+    return () => { clearTimeout(initial); clearInterval(timer); };
+  }, [refresh]);
   return { devices, events, error, checkedAt, refresh };
 }

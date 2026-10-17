@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createMediaSession } from '../media/adapters.ts';
 import { getDetector, subscribeDetector, inferenceGate } from '../media/detection.ts';
 import { validateBoxes } from '../media/contracts.ts';
-import type { DetectionBox, FeedSource, FeedState } from '../media/contracts.ts';
+import type { DetectionBox, DetectionEngine, FeedSource, FeedState } from '../media/contracts.ts';
 import { logMedia, publishDetections } from '../media/stores.ts';
 
 const STALE_MS = 5000;
 const OVERLAY_MS = 1000;
 const INFERENCE_INTERVAL_MS = 500;
-export interface OverlayFrame { boxes: DetectionBox[]; width: number; height: number; observedAt: number }
+export interface OverlayFrame { boxes: DetectionBox[]; width: number; height: number; observedAt: number; generation: number; engine: DetectionEngine }
 
 export function useVideoFeed(source: FeedSource) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -16,25 +16,46 @@ export function useVideoFeed(source: FeedSource) {
   const engine = useSyncExternalStore(subscribeDetector, getDetector);
   const [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [detectionEnabled, setDetectionEnabled] = useState(false);
+  const [detectionEnabled, setDetectionEnabledState] = useState(false);
   const detectionRef = useRef(false);
+  const [detectionGeneration, setDetectionGeneration] = useState(0);
+  const detectionGenerationRef = useRef(0);
+  const engineRef = useRef(engine);
   const [status, setStatus] = useState<FeedState>('stopped');
   const [message, setMessage] = useState('');
   const [detectionMessage, setDetectionMessage] = useState('');
+  const [detectionMessageKey, setDetectionMessageKey] = useState({ generation: 0, engine });
   const [lastFrameAt, setLastFrameAt] = useState<number | null>(null);
   const [captureAt, setCaptureAt] = useState<number | null>(null);
   const [overlay, setOverlay] = useState<OverlayFrame | null>(null);
   const inferenceAbortRef = useRef<AbortController | null>(null);
   const detectorBlockedRef = useRef(false);
   useEffect(() => { sourceRef.current = source; }, [source]);
+  useEffect(() => { engineRef.current = engine; }, [engine]);
+  const setDetectionEnabled = useCallback((enabled: boolean) => {
+    const generation = detectionGenerationRef.current + 1;
+    detectionGenerationRef.current = generation;
+    detectionRef.current = enabled;
+    detectorBlockedRef.current = false;
+    inferenceAbortRef.current?.abort();
+    setDetectionGeneration(generation);
+    setOverlay(null);
+    setDetectionMessage('');
+    setDetectionMessageKey({ generation, engine: engineRef.current });
+    setDetectionEnabledState(enabled);
+  }, []);
+  const updateDetectionMessage = useCallback((message: string) => {
+    setDetectionMessage(message);
+    setDetectionMessageKey({ generation: detectionGenerationRef.current, engine: engineRef.current });
+  }, []);
+  // Keep detector refs and requests synchronized; overlay/message validity is derived from engine and generation.
   useEffect(() => {
     detectionRef.current = detectionEnabled;
     detectorBlockedRef.current = false;
     inferenceAbortRef.current?.abort();
-    setOverlay(null);
-    setDetectionMessage('');
   }, [detectionEnabled, engine]);
 
+  // Media URLs/transport/identity are explicit dependencies; position metadata may update without restarting playback.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !running) { setStatus('stopped'); setOverlay(null); return; }
@@ -77,6 +98,7 @@ export function useVideoFeed(source: FeedSource) {
       if (!engine || !detectionRef.current || detectorBlockedRef.current || document.hidden || !context) return;
       if (observedAt - lastInference < INFERENCE_INTERVAL_MS) return;
       lastInference = observedAt;
+      const generation = detectionGenerationRef.current;
       void inferenceGate.run(source.id, async () => {
         const request = new AbortController();
         inferenceAbortRef.current = request;
@@ -84,7 +106,7 @@ export function useVideoFeed(source: FeedSource) {
           request.abort();
           if (active) {
             detectorBlockedRef.current = true;
-            setDetectionMessage('Detection timed out. Playback continues; toggle detection to retry.');
+            updateDetectionMessage('Detection timed out. Playback continues; toggle detection to retry.');
             setOverlay(null);
           }
         }, 8000);
@@ -98,13 +120,13 @@ export function useVideoFeed(source: FeedSource) {
           request.signal.throwIfAborted();
           const frameId = crypto.randomUUID();
           const result = await engine.infer({ image, frameId, sourceId: source.id, width: canvas.width, height: canvas.height, observedAt, mediaTime }, request.signal);
-          if (!active || request.signal.aborted || !detectionRef.current || state !== 'playing' || document.hidden) return;
+          if (!active || request.signal.aborted || !detectionRef.current || detectionGenerationRef.current !== generation || state !== 'playing' || document.hidden) return;
           if (result.frameId !== frameId) throw new Error('Detector returned results for a different frame.');
           // Discard delayed responses instead of painting old boxes over a newer scene.
           if (Date.now() - observedAt > OVERLAY_MS || Math.abs(video.currentTime - mediaTime) > OVERLAY_MS / 1000) return;
           const boxes = validateBoxes(result.boxes, engine.supportedClasses);
-          setOverlay({ boxes, width: canvas.width, height: canvas.height, observedAt });
-          setDetectionMessage(boxes.length ? `${boxes.length} detection${boxes.length === 1 ? '' : 's'} · unverified` : 'No supported objects detected in the sampled frame.');
+          setOverlay({ boxes, width: canvas.width, height: canvas.height, observedAt, generation, engine });
+          updateDetectionMessage(boxes.length ? `${boxes.length} detection${boxes.length === 1 ? '' : 's'} · unverified` : 'No supported objects detected in the sampled frame.');
           publishDetections(sourceRef.current, boxes, observedAt);
         } catch (error) {
           if (!active || request.signal.aborted) return;
@@ -112,7 +134,7 @@ export function useVideoFeed(source: FeedSource) {
           const detail = error instanceof DOMException && error.name === 'SecurityError'
             ? 'Frames are blocked by CORS. Configure the media server for this dashboard origin. Detection stopped.'
             : `Detection unavailable: ${error instanceof Error ? error.message : String(error)} Playback continues.`;
-          setDetectionMessage(detail); setOverlay(null); logMedia('error', `${source.name}: ${detail}`);
+          updateDetectionMessage(detail); setOverlay(null); logMedia('error', `${source.name}: ${detail}`);
         } finally {
           clearTimeout(timeout);
           if (inferenceAbortRef.current === request) inferenceAbortRef.current = null;
@@ -181,9 +203,11 @@ export function useVideoFeed(source: FeedSource) {
       session.dispose();
     };
     // Telemetry updates must not restart media. Source URL/transport changes must.
-  }, [running, attempt, source.id, source.transport, source.url, source.mimeType, source.name, engine]);
+  }, [running, attempt, source.id, source.transport, source.url, source.mimeType, source.name, engine]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { videoRef, status, message, lastFrameAt, captureAt, overlay, detectionMessage, detectionEnabled, setDetectionEnabled, engine,
+  const visibleOverlay = overlay?.generation === detectionGeneration && overlay.engine === engine ? overlay : null;
+  const visibleDetectionMessage = detectionMessageKey.generation === detectionGeneration && detectionMessageKey.engine === engine ? detectionMessage : '';
+  return { videoRef, status, message, lastFrameAt, captureAt, overlay: visibleOverlay, detectionMessage: visibleDetectionMessage, detectionEnabled, setDetectionEnabled, engine,
     start: () => { setRunning(true); setAttempt(n => n + 1); },
     stop: () => { setRunning(false); setOverlay(null); },
   };

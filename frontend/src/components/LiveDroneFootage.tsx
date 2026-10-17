@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 import { Camera, Video, Maximize2, Volume2, VolumeX, Play, Square, MapPin, Plus, LayoutGrid } from 'lucide-react';
 import { useVideoFeed } from '../hooks/useVideoFeed';
@@ -11,18 +11,18 @@ function timeLabel(timestamp: number | null) {
 }
 
 function FeedCard({ source, selected, onSelect }: { source: FeedSource; selected: boolean; onSelect: (id: string) => void }) {
-  const feed = useVideoFeed(source);
-  const frameRef = useRef<HTMLDivElement>(null);
+  const { videoRef, status, overlay, message, lastFrameAt, captureAt, start, stop,
+    detectionEnabled, setDetectionEnabled, engine, detectionMessage } = useVideoFeed(source);
+  const [frameElement, setFrameElement] = useState<HTMLDivElement | null>(null);
   const [muted, setMuted] = useState(true);
   const [controlError, setControlError] = useState('');
   const isTest = source.kind === 'webcam';
-  const busy = ['playing', 'loading', 'stale'].includes(feed.status);
-  const overlay = feed.overlay;
-  const statusLabel = { stopped: 'Stopped', loading: 'Loading', playing: isTest ? 'Webcam active' : 'Receiving video', stale: 'Stale frames', disconnected: 'Disconnected', error: 'Unavailable' }[feed.status];
+  const busy = ['playing', 'loading', 'stale'].includes(status);
+  const statusLabel = { stopped: 'Stopped', loading: 'Loading', playing: isTest ? 'Webcam active' : 'Receiving video', stale: 'Stale frames', disconnected: 'Disconnected', error: 'Unavailable' }[status];
   const fullscreen = async () => {
     try {
-      if (document.fullscreenElement === frameRef.current) await document.exitFullscreen();
-      else if (frameRef.current?.requestFullscreen) await frameRef.current.requestFullscreen();
+      if (document.fullscreenElement === frameElement) await document.exitFullscreen();
+      else if (frameElement?.requestFullscreen) await frameElement.requestFullscreen();
       else throw new Error('Fullscreen is unavailable in this browser.');
     } catch (error) { setControlError(error instanceof Error ? error.message : 'Fullscreen could not start.'); }
   };
@@ -32,10 +32,10 @@ function FeedCard({ source, selected, onSelect }: { source: FeedSource; selected
         <button className="feed-select-title" onClick={() => onSelect(source.id)} aria-pressed={selected}>
           {isTest ? <Camera size={15} /> : <Video size={15} />} {source.name}
         </button>
-        <span className={`badge ${feed.status === 'playing' ? 'success' : ['error', 'disconnected'].includes(feed.status) ? 'critical' : 'neutral'}`}>{statusLabel}</span>
+        <span className={`badge ${status === 'playing' ? 'success' : ['error', 'disconnected'].includes(status) ? 'critical' : 'neutral'}`}>{statusLabel}</span>
       </div>
-      <div className="feed-frame" ref={frameRef}>
-        <video ref={feed.videoRef} muted playsInline aria-label={`${source.name} video`} />
+      <div className="feed-frame" ref={setFrameElement}>
+        <video ref={videoRef} muted={muted} playsInline aria-label={`${source.name} video`} />
         {overlay && overlay.boxes.length > 0 && (
           <svg className="feed-overlay" viewBox={`0 0 ${overlay.width} ${overlay.height}`} preserveAspectRatio="xMidYMid meet" aria-label="Unverified detection boxes">
             {overlay.boxes.map((box, i) => {
@@ -50,32 +50,32 @@ function FeedCard({ source, selected, onSelect }: { source: FeedSource; selected
             })}
           </svg>
         )}
-        {feed.status !== 'playing' && (
+        {status !== 'playing' && (
           <div className="feed-placeholder" role="status">
             <Video size={26} />
             <strong>{source.transport === 'none' ? 'No stream configured' : statusLabel}</strong>
-            <span>{feed.message || (isTest ? 'Start the webcam test to request camera access.' : 'Start this source to check video connectivity.')}</span>
+            <span>{message || (isTest ? 'Start the webcam test to request camera access.' : 'Start this source to check video connectivity.')}</span>
           </div>
         )}
         <span className={`feed-source-label${isTest ? ' test' : ''}`}>{isTest ? 'WEBCAM TEST · NOT DRONE FOOTAGE' : source.viaGateway ? 'DEVICE VIDEO · VIA GATEWAY' : 'DEVICE VIDEO'}</span>
         <div className="feed-video-controls">
-          <button className="btn btn-secondary btn-sm" onClick={() => { if (feed.videoRef.current) feed.videoRef.current.muted = !muted; setMuted(v => !v); }} aria-label={muted ? `Unmute ${source.name}` : `Mute ${source.name}`} disabled={isTest} title={isTest ? 'Webcam test captures video only' : undefined}>{muted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setMuted(v => !v)} aria-label={muted ? `Unmute ${source.name}` : `Mute ${source.name}`} disabled={isTest} title={isTest ? 'Webcam test captures video only' : undefined}>{muted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
           <button className="btn btn-secondary btn-sm" onClick={fullscreen} aria-label={`Fullscreen ${source.name}`}><Maximize2 size={14} /></button>
         </div>
       </div>
       <div className="feed-details">
-        <div className="feed-times"><span>Frame received <strong>{timeLabel(feed.lastFrameAt)}</strong></span><span>Capture time <strong>{feed.captureAt ? `${timeLabel(feed.captureAt)} (estimated)` : 'Not supplied'}</strong></span></div>
+        <div className="feed-times"><span>Frame received <strong>{timeLabel(lastFrameAt)}</strong></span><span>Capture time <strong>{captureAt ? `${timeLabel(captureAt)} (estimated)` : 'Not supplied'}</strong></span></div>
         <div className="feed-map-link">
           <button className="btn btn-secondary btn-sm" disabled={!source.position && !source.demoMarker} onClick={() => onSelect(source.id)}><MapPin size={12} />{isTest ? 'No drone marker' : source.demoMarker ? 'Linked demo marker' : source.position ? 'Locate device' : 'GPS unavailable'}</button>
           <span>{source.demoMarker ? 'Demo position only' : source.position ? 'Device GPS only' : 'No device position'}</span>
         </div>
         <div className="feed-actions">
-          <button className="btn btn-primary btn-sm" disabled={source.transport === 'none' || busy} onClick={() => { setMuted(true); setControlError(''); feed.start(); }}><Play size={12} />{isTest ? 'Start webcam test' : 'Start feed'}</button>
-          <button className="btn btn-secondary btn-sm" disabled={feed.status === 'stopped'} onClick={feed.stop}><Square size={12} />Stop</button>
-          <label className="feed-detection-toggle"><input type="checkbox" checked={feed.detectionEnabled} disabled={!feed.engine} onChange={event => feed.setDetectionEnabled(event.target.checked)} />Detection</label>
+          <button className="btn btn-primary btn-sm" disabled={source.transport === 'none' || busy} onClick={() => { setMuted(true); setControlError(''); start(); }}><Play size={12} />{isTest ? 'Start webcam test' : 'Start feed'}</button>
+          <button className="btn btn-secondary btn-sm" disabled={status === 'stopped'} onClick={stop}><Square size={12} />Stop</button>
+          <label className="feed-detection-toggle"><input type="checkbox" checked={detectionEnabled} disabled={!engine} onChange={event => setDetectionEnabled(event.target.checked)} />Detection</label>
         </div>
-        <p className="feed-note">{feed.engine ? `${feed.engine.name} · enabling detection sends readable frames to this engine (max 2/sec).` : 'Detection not configured — no model results are available.'}</p>
-        {feed.detectionMessage && <p className="feed-note" role="status">{feed.detectionMessage}</p>}
+        <p className="feed-note">{engine ? `${engine.name} · enabling detection sends readable frames to this engine (max 2/sec).` : 'Detection not configured — no model results are available.'}</p>
+        {detectionMessage && <p className="feed-note" role="status">{detectionMessage}</p>}
         {controlError && <p className="feed-error" role="alert">{controlError}</p>}
       </div>
     </article>

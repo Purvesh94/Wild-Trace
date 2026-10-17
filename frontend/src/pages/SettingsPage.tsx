@@ -9,6 +9,8 @@ import {
   Copy, PlugZap, Clock,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
+import { API_BASE, deviceApi } from '../services/deviceApi';
+import { getDetector } from '../media/detection';
 
 interface DeviceEntry {
   id: string;
@@ -36,6 +38,9 @@ export default function SettingsPage() {
   const [tokenExpiry, setTokenExpiry] = useState<Date | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [gatewayOnline, setGatewayOnline] = useState<boolean | null>(null);
+  const [connectedDeviceCount, setConnectedDeviceCount] = useState(0);
+  const [systemCheckedAt, setSystemCheckedAt] = useState<Date | null>(null);
 
   // Profile state
   const [profileName, setProfileName] = useState(MOCK_USER.name);
@@ -80,8 +85,29 @@ export default function SettingsPage() {
     return () => clearInterval(tick);
   }, [tokenExpiry]);
 
+  useEffect(() => {
+    if (activeTab !== 'system') return;
+    let alive = true;
+    const check = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(2500) });
+        if (!response.ok) throw new Error('Gateway unavailable');
+        const listing = await deviceApi.list();
+        if (!alive) return;
+        setGatewayOnline(true);
+        setConnectedDeviceCount(listing.devices.filter(device => device.connected && !device.manualDisconnected).length);
+      } catch {
+        if (alive) { setGatewayOnline(false); setConnectedDeviceCount(0); }
+      } finally { if (alive) setSystemCheckedAt(new Date()); }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 3000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [activeTab]);
+
   function generatePairingToken() {
-    const token = `TSP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const random = crypto.getRandomValues(new Uint8Array(16));
+    const token = `TSP-${Array.from(random, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     setPairingToken(token);
     setTokenExpiry(expiry);
@@ -108,7 +134,7 @@ export default function SettingsPage() {
 
   return (
     <AppShell pageTitle="Settings" pageSubtitle="System configuration and device management">
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 16, height: 'calc(100vh - 160px)' }}>
+      <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: 16, height: 'calc(100vh - 160px)' }}>
         {/* Settings sidebar */}
         <div className="card" style={{ overflow: 'auto' }}>
           <div style={{ padding: '8px 0' }}>
@@ -195,13 +221,13 @@ export default function SettingsPage() {
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Device Management & QR Pairing</h2>
               <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 20 }}>
-                Manage paired devices. Generate a QR code to onboard new devices.
+                  Demo device records and a local QR preview. This screen does not pair or connect hardware.
               </p>
 
               <div className="demo-alert-banner" style={{ marginBottom: 16 }}>
                 <AlertTriangle size={16} />
                 <div style={{ fontSize: 12 }}>
-                  QR pairing uses short-lived tokens over local network. It does not establish Wi-Fi connections or control drone hardware directly.
+                  Demo only: the QR code contains a browser-generated, short-lived token. This project has no QR redemption endpoint, so scanning it does not pair a device. Connect an ESP32 from the Device Connection tab instead.
                   Real device connectivity requires network reachability and compatible protocols.
                 </div>
               </div>
@@ -259,7 +285,7 @@ export default function SettingsPage() {
                     marginBottom: 14,
                   }}>
                     <QRCodeSVG
-                      value={`tadoba-sentinel://pair?token=${pairingToken}&host=${window.location.hostname}&port=${window.location.port || '80'}&t=${Date.now()}`}
+                      value={`tadoba-sentinel://pair?token=${encodeURIComponent(pairingToken)}&host=${encodeURIComponent(window.location.hostname)}&port=${encodeURIComponent(window.location.port || '80')}`}
                       size={180}
                       bgColor="#ffffff"
                       fgColor="#0d2818"
@@ -321,8 +347,7 @@ export default function SettingsPage() {
               <div className="demo-alert-banner" style={{ marginBottom: 16 }}>
                 <AlertTriangle size={16} />
                 <span style={{ fontSize: 12 }}>
-                  Authentication is not yet implemented. The application currently runs in unauthenticated demo mode. Production deployments
-                  must add server-side authentication, role-based access control, and secure session management.
+                  There is no dashboard sign-in or role-based access control. Drone command routes require the configured local operator token, but this demo gateway must stay bound to loopback and must not be exposed to a network.
                 </span>
               </div>
               <div className="form-group">
@@ -351,12 +376,13 @@ export default function SettingsPage() {
                 {[
                   { label: 'Application', value: 'Tadoba Sentinel v0.1.0-dev' },
                   { label: 'Frontend', value: 'React + Vite (running)' },
-                  { label: 'Backend', value: 'Node.js + Express (not started)', color: 'var(--color-critical)' },
-                  { label: 'Database', value: 'SQLite (not connected)', color: 'var(--color-critical)' },
-                  { label: 'WebSocket', value: 'Not connected', color: 'var(--color-critical)' },
-                  { label: 'Drone Adapter', value: 'Simulated (mock)' },
-                  { label: 'AI/Re-ID Engine', value: 'Not configured', color: 'var(--color-warning)' },
-                  { label: 'Data Mode', value: 'Mock data (demo)' },
+                  { label: 'Local gateway', value: gatewayOnline === null ? 'Checking…' : gatewayOnline ? 'Node.js + Express running on this laptop' : 'Not reachable', color: gatewayOnline === false ? 'var(--color-critical)' : undefined },
+                  { label: 'ESP32 bridge', value: gatewayOnline === null ? 'Checking…' : gatewayOnline ? `${connectedDeviceCount} connected · HTTP status polling` : 'Unavailable while gateway is offline' },
+                  { label: 'Database', value: 'No database used by the drone gateway; connection state is in memory' },
+                  { label: 'WebSocket', value: 'Not used for ESP32 connection; status refreshes over HTTP every 3 seconds' },
+                  { label: 'Drone adapter', value: connectedDeviceCount ? 'ESP32 bridge connected; flight hardware state is separately verified' : 'No live ESP32 bridge currently connected' },
+                  { label: 'AI/Re-ID engine', value: getDetector() ? 'Detection service configured' : 'Not configured' },
+                  { label: 'Demo content', value: 'Sample dashboard data remains in other sections' },
                 ].map(item => (
                   <div key={item.label} style={{ padding: '10px 0', borderBottom: '1px solid var(--color-card-border)' }}>
                     <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600 }}>{item.label}</div>
@@ -364,6 +390,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 14 }}>Last checked {systemCheckedAt ? systemCheckedAt.toLocaleTimeString() : '—'} · these checks report the local gateway and registered device sessions, not whether the drone is airborne or camera video is flowing.</p>
             </div>
           )}
         </div>

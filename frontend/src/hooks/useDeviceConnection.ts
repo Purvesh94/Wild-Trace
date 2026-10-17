@@ -115,7 +115,7 @@ function httpUrl(s: ConnectionSettings) {
 }
 
 /** True when the page is HTTPS and the device target is plain HTTP/WS */
-function hasMixedContentRisk(s: ConnectionSettings): boolean {
+function hasMixedContentRisk(): boolean {
   return window.location.protocol === 'https:';
 }
 
@@ -374,7 +374,7 @@ export function useDeviceConnection(): [DeviceConnectionState, DeviceConnectionA
     setHttpReachable(null);
     setFirmwareInfo(null);
     addLog('info', `Connecting to ${s.host}:${s.port}…`);
-    if (hasMixedContentRisk(s)) {
+    if (hasMixedContentRisk()) {
       addLog('warn', 'Page is served over HTTPS. Browser may block ws:// and http:// connections to the device. Use http:// to serve this dashboard on the same network for LAN access.');
     }
     openWebSocket(s);
@@ -395,7 +395,7 @@ export function useDeviceConnection(): [DeviceConnectionState, DeviceConnectionA
     // Quick WS probe (open and immediately close)
     addLog('info', `Test — probing WebSocket ${wsUrl(s)} …`);
     await new Promise<void>((resolve) => {
-      if (hasMixedContentRisk(s)) {
+      if (hasMixedContentRisk()) {
         addLog('warn', 'Mixed-content: WebSocket probe may be blocked by browser.');
       }
       let ws: WebSocket;
@@ -439,7 +439,7 @@ export function useDeviceConnection(): [DeviceConnectionState, DeviceConnectionA
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  const mixedContentWarning = hasMixedContentRisk(settings);
+  const mixedContentWarning = hasMixedContentRisk();
 
   return [
     { status, transport, wsReachable, httpReachable, lastSeen, firmwareInfo, logs, settings, mixedContentWarning },

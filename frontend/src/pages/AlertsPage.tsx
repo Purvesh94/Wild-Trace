@@ -1,8 +1,7 @@
 import { useState, useSyncExternalStore } from 'react';
 import AppShell from '../components/AppShell';
 import {
-  Search, Filter, ChevronDown, ChevronRight, Camera,
-  CheckCircle, AlertTriangle, Clock, Eye, X
+  Search, CheckCircle, Eye
 } from 'lucide-react';
 import { getAlerts, subscribeEvents } from '../media/stores';
 
@@ -77,7 +76,7 @@ export default function AlertsPage() {
       </div>
 
       {/* Master-detail layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: 16, height: 'calc(100vh - 280px)', minHeight: 300 }}>
+      <div className="responsive-two-column" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: 16, height: 'calc(100vh - 280px)', minHeight: 300 }}>
         {/* Alert list */}
         <div className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ overflowY: 'auto', flex: 1 }}>

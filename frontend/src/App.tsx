@@ -1,23 +1,28 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import OverviewPage from './pages/OverviewPage'
-import LiveMapPage from './pages/LiveMapPage'
-import AlertsPage from './pages/AlertsPage'
-import MissionsPage from './pages/MissionsPage'
-import AnimalsPage from './pages/AnimalsPage'
-import ReportsPage from './pages/ReportsPage'
-import SettingsPage from './pages/SettingsPage'
+
+const OverviewPage = lazy(() => import('./pages/OverviewPage'))
+const LiveMapPage = lazy(() => import('./pages/LiveMapPage'))
+const AlertsPage = lazy(() => import('./pages/AlertsPage'))
+const MissionsPage = lazy(() => import('./pages/MissionsPage'))
+const AnimalsPage = lazy(() => import('./pages/AnimalsPage'))
+const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/overview" replace />} />
-      <Route path="/overview" element={<OverviewPage />} />
-      <Route path="/map" element={<LiveMapPage />} />
-      <Route path="/alerts" element={<AlertsPage />} />
-      <Route path="/missions" element={<MissionsPage />} />
-      <Route path="/animals" element={<AnimalsPage />} />
-      <Route path="/reports" element={<ReportsPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-    </Routes>
+    <Suspense fallback={<main className="page-content" role="status">Loading page…</main>}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/overview" replace />} />
+        <Route path="/overview" element={<OverviewPage />} />
+        <Route path="/map" element={<LiveMapPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/missions" element={<MissionsPage />} />
+        <Route path="/animals" element={<AnimalsPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/overview" replace />} />
+      </Routes>
+    </Suspense>
   )
 }

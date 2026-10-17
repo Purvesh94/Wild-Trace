@@ -4,6 +4,16 @@ import { API_BASE, deviceApi, getOperatorToken, setOperatorToken } from '../serv
 import type { DiscoveredEsp32, GatewayReadiness, WifiState } from '../services/deviceApi';
 import DroneControlPanel from './DroneControlPanel';
 
+const AUTO_RECONNECT_KEY = 'wildtrace_auto_reconnect';
+const AUTHORIZED_DEVICES_KEY = 'wildtrace_authorized_devices';
+
+function readAuthorizedDevices(): string[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(AUTHORIZED_DEVICES_KEY) || '[]');
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string' && /^[a-zA-Z0-9_-]{3,64}$/.test(id)) : [];
+  } catch { return []; }
+}
+
 export default function Esp32ConnectionPanel() {
   const { devices, events, error: gatewayError, refresh } = useGatewayDevices();
   const [wifi, setWifi] = useState<WifiState | null>(null);
@@ -25,10 +35,39 @@ export default function Esp32ConnectionPanel() {
   const [dryRun, setDryRun] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [autoReconnect, setAutoReconnect] = useState(() => localStorage.getItem(AUTO_RECONNECT_KEY) === 'true');
+  const [networkChange, setNetworkChange] = useState('');
   const scanRef = useRef<EventSource | null>(null);
   const scanVersionRef = useRef(0);
   const networkKeyRef = useRef('');
+  const previousNetworkRef = useRef<WifiState | null>(null);
+  const autoReconnectRef = useRef(autoReconnect);
+  const authorizedRef = useRef(new Set(readAuthorizedDevices()));
+  const reconnectingRef = useRef(new Set<string>());
   const selected = devices.find(d => d.id === selectedId) || devices[0];
+
+  const closeActiveScan = useCallback(() => {
+    scanRef.current?.close();
+    scanRef.current = null;
+  }, []);
+
+  const saveAuthorized = useCallback(() => {
+    localStorage.setItem(AUTHORIZED_DEVICES_KEY, JSON.stringify([...authorizedRef.current]));
+  }, []);
+
+  const reconnectIfAuthorized = useCallback(async (device: DiscoveredEsp32, connectionMode: 'station' | 'access_point', version: number) => {
+    if (!autoReconnectRef.current || !authorizedRef.current.has(device.deviceId) || reconnectingRef.current.has(device.deviceId)) return;
+    reconnectingRef.current.add(device.deviceId);
+    try {
+      const result = await deviceApi.connect(device.ip, device.port, `ESP32 ${device.deviceId}`, connectionMode, 'modern_json');
+      if (version === scanVersionRef.current) {
+        setSelectedId(result.device.id);
+        setMessage(`Reconnected to previously authorized device ${device.deviceId}.`);
+      }
+    } catch (error) {
+      if (version === scanVersionRef.current) setMessage(`Could not reconnect to ${device.deviceId}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally { reconnectingRef.current.delete(device.deviceId); }
+  }, []);
 
   const scan = useCallback(async (network: WifiState) => {
     scanRef.current?.close();
@@ -37,12 +76,12 @@ export default function Esp32ConnectionPanel() {
     if (network.mode === 'softap' || network.mode === 'softap_candidate') {
       try {
         const { device } = await deviceApi.discoverHost('192.168.4.1', 80);
-        if (version === scanVersionRef.current) { setFound([device]); setScanStatus('done'); }
+        if (version === scanVersionRef.current) { setFound([device]); setScanStatus('done'); void reconnectIfAuthorized(device, 'access_point', version); }
       } catch { if (version === scanVersionRef.current) setScanStatus('done'); }
       return;
     }
-    if (network.mode !== 'station' || !network.base) { setScanStatus('error'); return; }
-    const params = new URLSearchParams({ base: network.base, ports: '80,8080' });
+    if (network.mode !== 'station' || !network.cidr) { setScanStatus('error'); return; }
+    const params = new URLSearchParams({ cidr: network.cidr, ports: '80,8080' });
     const stream = new EventSource(`${API_BASE}/api/discovery/scan?${params}`);
     scanRef.current = stream;
     stream.addEventListener('device', event => {
@@ -50,6 +89,7 @@ export default function Esp32ConnectionPanel() {
       try {
         const d = JSON.parse((event as MessageEvent).data) as DiscoveredEsp32;
         setFound(previous => previous.some(p => p.ip === d.ip && p.port === d.port) ? previous : [...previous, d]);
+        void reconnectIfAuthorized(d, 'station', version);
       } catch { /* Ignore malformed discovery event. */ }
     });
     stream.addEventListener('progress', event => {
@@ -65,15 +105,20 @@ export default function Esp32ConnectionPanel() {
       if (version !== scanVersionRef.current) return;
       stream.close(); scanRef.current = null; setScanStatus('error');
     };
-  }, []);
+  }, [reconnectIfAuthorized]);
 
   const detectWifi = useCallback(async (forceScan = false) => {
     void deviceApi.readiness().then(setReadiness).catch(() => setReadiness(null));
     try {
       const current = await deviceApi.networkCurrent();
       setWifi(current); setWifiError('');
-      const key = `${current.mode}|${current.ssid || current.profileName}|${current.address}|${current.gateway}`;
+      const key = `${current.mode}|${current.interfaceName}|${current.ssid || current.profileName}|${current.address}|${current.cidr}|${current.gateway}`;
       if (forceScan || key !== networkKeyRef.current) {
+        const previous = previousNetworkRef.current;
+        if (previous && `${previous.mode}|${previous.interfaceName}|${previous.address}|${previous.cidr}` !== `${current.mode}|${current.interfaceName}|${current.address}|${current.cidr}`) {
+          setNetworkChange(`Laptop network changed: ${previous.ssid || previous.profileName || previous.address || previous.mode} → ${current.ssid || current.profileName || current.address || current.mode}. Checking for authorized devices.`);
+        }
+        previousNetworkRef.current = current;
         networkKeyRef.current = key;
         const ap = current.mode === 'softap' || current.mode === 'softap_candidate';
         setMode(ap ? 'access_point' : 'station');
@@ -83,10 +128,10 @@ export default function Esp32ConnectionPanel() {
     } catch (error) { setWifiError(error instanceof Error ? error.message : String(error)); }
   }, [scan]);
   useEffect(() => {
-    void detectWifi();
-    const timer = setInterval(() => void detectWifi(), 12000);
-    return () => { clearInterval(timer); ++scanVersionRef.current; scanRef.current?.close(); };
-  }, [detectWifi]);
+    const initial = setTimeout(() => void detectWifi(), 0);
+    const timer = setInterval(() => void detectWifi(), 3000);
+    return () => { clearTimeout(initial); clearInterval(timer); ++scanVersionRef.current; closeActiveScan(); }; // eslint-disable-line react-hooks/exhaustive-deps
+  }, [closeActiveScan, detectWifi]);
 
   function chooseFound(device: DiscoveredEsp32) {
     setHost(device.ip); setPort(device.port); setProfile('modern_json');
@@ -99,7 +144,7 @@ export default function Esp32ConnectionPanel() {
     : wifi?.mode === 'softap_candidate'
       ? 'Laptop appears to be on the ESP32 access-point network. Checking 192.168.4.1; exact SSID is unavailable.'
       : wifi?.mode === 'station'
-        ? `Laptop is on ${wifi.ssid ? `normal Wi-Fi (${wifi.ssid})` : `network profile (${wifi.profileName || 'name unavailable'})`} → Looking for ESP32 devices on ${wifi.base}.0/24.`
+        ? `Laptop Wi-Fi is connected${wifi.ssid ? ` to ${wifi.ssid}` : wifi.profileName ? ` · Windows profile: ${wifi.profileName}` : ''} → Searching its live subnet ${wifi.subnet || `${wifi.base}.0/24`}.`
         : 'No active Wi-Fi network detected. Check Wi-Fi or enter a device IP manually.';
   async function run(work: () => Promise<unknown>, success: string) {
     setBusy(true); setMessage('');
@@ -117,10 +162,13 @@ export default function Esp32ConnectionPanel() {
       <p role="status" style={{ fontSize: 13, margin: '10px 0 6px' }}>{wifi ? wifiMessage : wifiError ? 'Local gateway unavailable.' : 'Checking laptop network…'}</p>
       {wifi && <div style={{ fontSize: 12, lineHeight: 1.7 }}>
         <div><strong>Wi-Fi name:</strong> {wifi.ssid || 'Unavailable'}{!wifi.ssid && wifi.profileName ? ` · Windows profile: ${wifi.profileName}` : ''}</div>
-        <div><strong>Adapter:</strong> {wifi.interfaceName || 'Unknown'} · <strong>Laptop IP:</strong> {wifi.address || 'Unavailable'} · <strong>Gateway:</strong> {wifi.gateway || 'Unavailable'}</div>
+        <div><strong>Wi-Fi adapter:</strong> {wifi.interfaceName || 'Not connected'} · <strong>Laptop IP:</strong> {wifi.address || 'Unavailable'}/{wifi.cidr?.split('/')[1] || '—'}</div>
+        <div><strong>Subnet:</strong> {wifi.subnet || 'Unavailable'} · <strong>Subnet mask:</strong> {wifi.netmask || 'Unavailable'} · <strong>Router gateway:</strong> {wifi.gateway || 'Unavailable'}</div>
+        <div>Network status refreshed {new Date(wifi.networkObservedAt).toLocaleTimeString()} · automatic refresh every 3 seconds.</div>
         {wifi.ssidNote && <div style={{ color: 'var(--color-warning)' }}>{wifi.ssidNote}</div>}
       </div>}
       {wifiError && <p role="alert" style={{ fontSize: 12 }}>{wifiError}</p>}
+      {networkChange && <p role="status" style={{ fontSize: 12 }}>{networkChange}</p>}
       <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => void detectWifi(true)}>Refresh Wi-Fi & scan</button>
     </div>
     <div className="card" style={{ padding: 16, marginBottom: 16 }}>
@@ -138,8 +186,17 @@ export default function Esp32ConnectionPanel() {
     </div>
     <div className="card" style={{ padding: 16, marginBottom: 16 }}>
       <div className="card-title">Available ESP32 devices</div>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, margin: '10px 0' }}>
+        <input type="checkbox" checked={autoReconnect} onChange={event => {
+          const enabled = event.target.checked;
+          autoReconnectRef.current = enabled; setAutoReconnect(enabled); localStorage.setItem(AUTO_RECONNECT_KEY, String(enabled));
+          if (enabled) devices.filter(d => d.profile === 'modern_json' && d.connected).forEach(d => authorizedRef.current.add(d.id));
+          saveAuthorized();
+        }} />
+        <span>Automatically reconnect to devices I have connected before. This only retries a compatible ESP32 identity on the laptop’s current local network; it never changes Wi-Fi networks or sends flight commands.</span>
+      </label>
       <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '8px 0' }}>
-        {ap ? 'SoftAP: probing 192.168.4.1:80.' : wifi?.mode === 'station' ? `Shared Wi-Fi: scanning ${wifi.base}.0/24 on ports 80 and 8080.` : 'Connect to Wi-Fi to scan, or use manual IP below.'}
+        {ap ? 'SoftAP: probing 192.168.4.1:80.' : wifi?.mode === 'station' ? `Laptop Wi-Fi: scanning ${wifi.subnet || `${wifi.base}.0/24`} on ports 80 and 8080.` : 'Connect to Wi-Fi to scan, or use manual IP below.'}
         {' '}Only firmware that identifies itself as an ESP32 remote bridge appears here.
       </p>
       {scanStatus === 'scanning' && <div role="status" style={{ fontSize: 12 }}>Scanning… {scanProgress}</div>}
@@ -164,7 +221,7 @@ export default function Esp32ConnectionPanel() {
       {profile === 'legacy_html' && <p style={{ fontSize: 12, color: 'var(--color-warning)' }}>HTML pages can be checked for reachability and title. Their identity and command routes are unverified, so flight controls stay disabled. The original GET /stop does not land the drone.</p>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn btn-secondary" disabled={busy || !host} onClick={() => void run(async () => { await deviceApi.probe(host, port, profile); }, profile === 'legacy_html' ? 'HTML page reachable; identity unverified' : 'ESP32 health check passed')}>Test Connection</button>
-        <button className="btn btn-primary" disabled={busy || !host} onClick={() => void run(async () => { const r = await deviceApi.connect(host, port, name, mode, profile); setSelectedId(r.device.id); }, profile === 'legacy_html' ? 'HTML page reachable; controls unavailable' : 'ESP32 connected; drone flight state remains unknown')}>Connect selected IP</button>
+        <button className="btn btn-primary" disabled={busy || !host} onClick={() => void run(async () => { const r = await deviceApi.connect(host, port, name, mode, profile); setSelectedId(r.device.id); if (profile === 'modern_json' && autoReconnectRef.current) { authorizedRef.current.add(r.device.id); saveAuthorized(); } }, profile === 'legacy_html' ? 'HTML page reachable; controls unavailable' : 'ESP32 connected; drone flight state remains unknown')}>Connect selected IP</button>
         <button className="btn btn-secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button>
       </div>
       {(message || gatewayError) && <p role="status" style={{ marginTop: 10, fontSize: 12 }}>{message || gatewayError}</p>}
@@ -187,7 +244,7 @@ export default function Esp32ConnectionPanel() {
           </>}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(() => deviceApi.status(selected.id), 'Status refreshed')}>View Status</button>
-            <button className="btn btn-danger btn-sm" disabled={busy || !selected.connected} onClick={() => void run(() => deviceApi.disconnect(selected.id), 'Dashboard disconnected; this does not land the drone')}>Disconnect</button>
+            <button className="btn btn-danger btn-sm" disabled={busy || !selected.connected} onClick={() => void run(async () => { await deviceApi.disconnect(selected.id); authorizedRef.current.delete(selected.id); saveAuthorized(); }, 'Dashboard disconnected; this does not land the drone')}>Disconnect</button>
           </div>
         </div>}
       </>}

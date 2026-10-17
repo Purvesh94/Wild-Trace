@@ -1,7 +1,9 @@
 export const API_BASE = import.meta.env.VITE_GATEWAY_URL || 'http://127.0.0.1:3099';
 export type WifiState = { mode: 'softap' | 'softap_candidate' | 'station' | 'offline'; base: string | null;
+  subnet: string | null; cidr: string | null; netmask: string | null;
   targetHost: string | null; ssid: string | null; profileName: string | null; interfaceName: string | null;
-  address: string | null; gateway: string | null; ssidBlocked: boolean; ssidNote: string | null; observedAt: string };
+  address: string | null; gateway: string | null; ssidBlocked: boolean; ssidNote: string | null;
+  observedAt: string; networkObservedAt: string };
 export type DiscoveredEsp32 = { ip: string; port: number; deviceId: string; firmware: string | null;
   source: string; compatible: true; checkedAt: string };
 export type DeviceTelemetry = { device_id: string; timestamp: string | null; latitude: number | null; longitude: number | null;
@@ -41,7 +43,7 @@ async function api<T>(path: string, method = 'GET', body?: unknown, timeoutMs = 
 }
 export const deviceApi = {
   readiness: () => api<GatewayReadiness>('/api/gateway/readiness'),
-  networkCurrent: () => api<WifiState>('/api/network/current', 'GET', undefined, 10000),
+  networkCurrent: () => api<WifiState>('/api/network/current', 'GET', undefined, 4000),
   discoverHost: (host: string, port = 80) => api<{ device: DiscoveredEsp32 }>(`/api/discovery/probe?${new URLSearchParams({ host, port: String(port) })}`),
   list: () => api<{ devices: GatewayDevice[] }>('/api/devices'),
   events: () => api<{ events: GatewayEvent[] }>('/api/events'),

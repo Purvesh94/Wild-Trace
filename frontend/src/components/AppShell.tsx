@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Map, Bell, Navigation, PawPrint,
   BarChart2, Settings, Shield, ChevronDown, Search
 } from 'lucide-react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { MOCK_USER } from '../data/mockData';
 
 const NAV_ITEMS = [

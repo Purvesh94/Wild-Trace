@@ -25,7 +25,7 @@ export default function MissionsPage() {
     <AppShell pageTitle="Missions" pageSubtitle="Drone missions and task management">
       <DroneControlPanel />
       <ManualMissionRegistry />
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, height: 'calc(100vh - 160px)', minHeight: 400 }}>
+      <div className="responsive-two-column mission-layout" style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: 16, height: 'calc(100vh - 160px)', minHeight: 400 }}>
         {/* Mission list */}
         <div className="card" style={{ overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">

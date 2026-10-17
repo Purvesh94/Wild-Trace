@@ -10,17 +10,17 @@
  *  GET  /health                     → self-health (also acts as test device for dev)
  *
  * Discovery method:
- *  1. Iterates 1–254 of the selected /24 subnet (max 256 addresses).
+ *  1. Scans the live Wi-Fi adapter subnet supplied by the local gateway.
  *  2. Tries GET http://<ip>:<port>/health for each configured port.
  *  3. Only emits a device if the response is 200 + valid JSON with { status:"ok" }.
  *  4. Never identifies an arbitrary HTTP server as ESP32/drone.
- *  5. Concurrency is bounded (CONCURRENCY = 20) with per-request timeout.
+ *  5. Concurrency is bounded with per-request timeouts.
  *  6. DNS reverse-lookup attempted for discovered IPs (best-effort; may fail).
  *
  * Security:
  *  - CORS restricted to localhost origins only (dashboard runs locally).
  *  - Targets restricted to RFC-1918 private ranges only.
- *  - No credentials stored or forwarded.
+ *  - Discovery does not store credentials. The gateway forwards its configured device token only to the selected private target for authenticated requests.
  *
  * Also hosts gateway and current Wi-Fi routes for Device Connection.
  *
@@ -39,10 +39,10 @@ import { currentWifi } from './wifi.js';
 const dnsReverse = promisify(dns.reverse);
 
 const PORT = 3099;
-const CONCURRENCY = 20;          // simultaneous fetch probes
-const PROBE_TIMEOUT_MS = 2500;   // per-host timeout
+const CONCURRENCY = 64;          // simultaneous fetch probes
+const PROBE_TIMEOUT_MS = 1000;   // per-host timeout
 const SCAN_PORTS = [80, 8080]; // ESP32 AP and configurable station services
-const MAX_HOSTS = 256;
+const MAX_HOSTS = 1022;
 
 // ─── Private range guard ──────────────────────────────────────────────────────
 
@@ -57,6 +57,28 @@ function isPrivateIp(ip) {
   return PRIVATE_RANGES.some(r => r.test(ip));
 }
 
+function ipv4Number(ip) {
+  return ip.split('.').reduce((value, octet) => value * 256 + Number(octet), 0) >>> 0;
+}
+
+function ipv4String(value) {
+  return [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join('.');
+}
+
+function networkDetails(address, prefix) {
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  const network = (ipv4Number(address) & mask) >>> 0;
+  return { network, mask, broadcast: (network | ~mask) >>> 0 };
+}
+
+function interfaceNetwork(address, netmask) {
+  const bits = netmask.split('.').map(octet => Number(octet).toString(2).padStart(8, '0')).join('');
+  if (!/^1*0*$/.test(bits)) return null;
+  const prefix = bits.indexOf('0') === -1 ? 32 : bits.indexOf('0');
+  const { network } = networkDetails(address, prefix);
+  return { subnet: `${ipv4String(network)}/${prefix}`, cidr: `${address}/${prefix}` };
+}
+
 // ─── Network interface enumeration ───────────────────────────────────────────
 
 function getInterfaces() {
@@ -65,17 +87,17 @@ function getInterfaces() {
   for (const [name, addrs] of Object.entries(ifaces)) {
     for (const addr of addrs ?? []) {
       if (addr.family !== 'IPv4' || addr.internal) continue;
-      // Build /24 subnet base
+      const network = interfaceNetwork(addr.address, addr.netmask);
+      if (!network) continue;
       const parts = addr.address.split('.');
-      const subnet = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
       const base   = `${parts[0]}.${parts[1]}.${parts[2]}`;
       results.push({
         name,
         address: addr.address,
         netmask: addr.netmask,
-        subnet,
+        subnet: network.subnet,
         base,
-        cidr: addr.cidr ?? subnet,
+        cidr: network.cidr,
       });
     }
   }
@@ -188,16 +210,23 @@ app.post('/api/discovery/stop', (_req, res) => {
 // Scan — SSE streaming endpoint
 app.get('/api/discovery/scan', async (req, res) => {
   // Parse query params
-  const base     = req.query.base   ?? '192.168.4';
+  const base = req.query.base;
+  const requestedCidr = req.query.cidr;
   const portsStr = req.query.ports  ?? SCAN_PORTS.join(',');
   const healthPath = '/health';
   const ports = typeof portsStr === 'string' ? portsStr.split(',').map(Number) : [];
 
-  // Security: base must resolve to a private range
-  if (typeof base !== 'string' || !/^(?:\d{1,3}\.){2}\d{1,3}$/.test(base) ||
-      base.split('.').some(n => Number(n) > 255) || !isPrivateIp(`${base}.1`) ||
+  const cidr = typeof requestedCidr === 'string' ? requestedCidr
+    : typeof base === 'string' ? `${base}.1/24` : '192.168.4.1/24';
+  const [scanAddress, prefixText, ...extraCidrParts] = cidr.split('/');
+  const prefix = Number(prefixText);
+  const validCidr = !extraCidrParts.length && isIP(scanAddress) === 4 && isPrivateIp(scanAddress) &&
+    /^\d{1,2}$/.test(prefixText || '') && Number.isInteger(prefix) && prefix >= 16 && prefix <= 30;
+  const scanNetwork = validCidr ? networkDetails(scanAddress, prefix) : null;
+  const hostCount = scanNetwork ? scanNetwork.broadcast - scanNetwork.network - 1 : 0;
+  if (!validCidr || !scanNetwork || hostCount < 1 || hostCount > MAX_HOSTS ||
       !ports.length || ports.length > 4 || ports.some(p => !Number.isInteger(p) || p < 1 || p > 65535)) {
-    res.status(400).json({ error: 'Scan target must be a private (RFC-1918) subnet.' });
+    res.status(400).json({ error: 'Scan target must be a private IPv4 subnet between /16 and /30, with no more than 1022 host addresses.' });
     return;
   }
 
@@ -219,13 +248,14 @@ app.get('/api/discovery/scan', async (req, res) => {
     }
   }
 
-  // Build host list (1–254, skip .0 and .255)
+  // Scan actual usable hosts on the connected Wi-Fi subnet.
   const hosts = [];
-  for (let i = 1; i <= 254 && hosts.length < MAX_HOSTS; i++) {
-    hosts.push(`${base}.${i}`);
+  for (let current = scanNetwork.network + 1; current < scanNetwork.broadcast && hosts.length < MAX_HOSTS; current++) {
+    hosts.push(ipv4String(current));
   }
 
-  send('start', { total: hosts.length * ports.length, base, ports, healthPath });
+  const subnet = `${ipv4String(scanNetwork.network)}/${prefix}`;
+  send('start', { total: hosts.length * ports.length, base: ipv4String(scanNetwork.network).split('.').slice(0, 3).join('.'), subnet, ports, healthPath });
 
   let checked = 0;
   const total = hosts.length * ports.length;

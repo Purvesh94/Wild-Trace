@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import AppShell from '../components/AppShell';
 import MapPanel from '../components/MapPanel';
 import {
@@ -6,7 +5,7 @@ import {
   ArrowRight, AlertTriangle, CheckCircle,
   ChevronRight, Camera, Wifi
 } from 'lucide-react';
-import { MOCK_OVERVIEW_STATS, MOCK_ALERTS, MOCK_MISSIONS } from '../data/mockData';
+import { MOCK_OVERVIEW_STATS, MOCK_ALERTS } from '../data/mockData';
 import { useNavigate } from 'react-router-dom';
 
 function StatCard({ icon: Icon, iconClass, label, value, sub, onClick }: any) {
@@ -45,7 +44,7 @@ export default function OverviewPage() {
       pageSubtitle="Tadoba–Andhari Tiger Reserve · Live monitoring"
     >
       {/* Top stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div className="responsive-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 20 }}>
         <StatCard
           icon={Bell} iconClass="red" label="Active alerts" value={s.activeAlerts}
           sub="Needs attention" onClick={() => navigate('/alerts')}
@@ -65,7 +64,7 @@ export default function OverviewPage() {
       </div>
 
       {/* Main layout: Map left, panels right */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, height: 'calc(100vh - 260px)', minHeight: 420 }}>
+      <div className="responsive-two-column" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, height: 'calc(100vh - 260px)', minHeight: 420 }}>
         {/* Live map */}
         <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
           <div style={{

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import AppShell from '../components/AppShell';
 import {
-  Search, Eye, ChevronRight, Camera,
+  Search, Eye, Camera,
   Clock, CheckCircle, AlertTriangle, History
 } from 'lucide-react';
 import { MOCK_ANIMALS } from '../data/mockData';
@@ -53,7 +53,7 @@ export default function AnimalsPage() {
         </select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16, height: 'calc(100vh - 240px)', minHeight: 350 }}>
+      <div className="responsive-two-column" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 16, height: 'calc(100vh - 240px)', minHeight: 350 }}>
         {/* Animal grid */}
         <div style={{ overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, alignContent: 'start' }}>
           {filtered.map(animal => (
